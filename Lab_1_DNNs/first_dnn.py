@@ -10,7 +10,7 @@ import os
 import os.path
 import numpy as np
 import pandas as pd
-#sess = tf.Session()
+sess = tf.Session()
 
 data = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data", sep=",",
                    names=["sepal_length", "sepal_width", "petal_length", "petal_width", "iris_class"])
@@ -33,4 +33,16 @@ train_x, test_x = np.split(all_x,[100])
 
 train_y, test_y = np.split(all_y,[100])
 
+x = tf.placeholder(tf.float32, shape=[None, n_x])
+y = tf.placeholder(tf.int32, shape=[None, n_y])
 
+w = tf.Variable(tf.zeros([n_x,n_y]))
+b = tf.Variable(tf.zeros([n_y]))
+
+y = tf.matmul(x,w) + b
+
+prediction = tf.nn.softmax(y)
+
+cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(prediction), axis=1))
+
+optimizer = tf.train.GradientDescentOptimizer(0.01)
