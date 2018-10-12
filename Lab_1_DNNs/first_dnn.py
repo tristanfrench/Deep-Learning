@@ -54,3 +54,17 @@ sess.run(tf.global_variables_initializer())
 for epoch in range(10000):
     sess.run([optimizer], feed_dict={x: train_x, y: train_y})
     
+  
+#print(sess.run(prediction, feed_dict={x: test_x[:100], y: test_y[:100]}).tolist()[1])
+
+print('HERE')
+myPrediction = sess.run(prediction, feed_dict={x: test_x[:5], y: test_y[:5]}).tolist()
+f = lambda x:np.argmax(x)
+print(list(map(f,myPrediction)))
+print(test_y.iloc[0:5])
+
+#print('HERE')
+#for epoch in range(10000):
+    
+
+    
