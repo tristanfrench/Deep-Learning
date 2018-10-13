@@ -33,41 +33,43 @@ train_x, test_x = np.split(all_x,[100])
 
 train_y, test_y = np.split(all_y,[100])
 
+groundTruth = np.argmax(test_y.values,1)#array with index of +1 label for each row e.g [0,1,0,2,1,0,2,2,1,1,0,1]
+
 x = tf.placeholder(tf.float32, shape=[None, n_x])
-y = tf.placeholder(tf.int32, shape=[None, n_y])
+y = tf.placeholder(tf.float32, shape=[None, n_y])
 
 w = tf.Variable(tf.zeros([n_x,n_y]))
 b = tf.Variable(tf.zeros([n_y]))
 
-y = tf.matmul(x,w) + b
-
-prediction = tf.nn.softmax(y)
+prediction = tf.nn.softmax(tf.matmul(x,w) + b)
 
 cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(prediction), axis=1))
 
 optimizer = tf.train.GradientDescentOptimizer(0.01).minimize(cost)
-
-
-
 sess.run(tf.global_variables_initializer())
 
 for epoch in range(10000):
     sess.run([optimizer], feed_dict={x: train_x, y: train_y})
+    myPrediction = sess.run(prediction, feed_dict={x: test_x, y: test_y}).tolist()
+    myPrediction = np.argmax(myPrediction,1)
+    if epoch % 1000 == 0:
+        print('Accuracy at epoch:%d =' %epoch,sum(np.equal(myPrediction,groundTruth))/len(groundTruth))
+
+    
+    
     
   
 
-myPrediction = sess.run(prediction, feed_dict={x: test_x[:], y: test_y[:]}).tolist()
-f = lambda x:np.argmax(x)
-
-myPrediction2 = list(map(f,myPrediction))
 
 
-a = list(map(f,myPrediction))
-b = np.argmax(test_y.values,1)
+
+
+
+
 #print(a)
 #print(b)
-print(np.equal(a,b))
-print('sum =',sum(np.equal(a,b)))
+
+
 #printsum(sum(np.equal(myPrediction2,test_y
 
 
