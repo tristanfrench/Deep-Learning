@@ -55,16 +55,22 @@ for epoch in range(10000):
     sess.run([optimizer], feed_dict={x: train_x, y: train_y})
     
   
-#print(sess.run(prediction, feed_dict={x: test_x[:100], y: test_y[:100]}).tolist()[1])
 
-print('HERE')
-myPrediction = sess.run(prediction, feed_dict={x: test_x[:5], y: test_y[:5]}).tolist()
+myPrediction = sess.run(prediction, feed_dict={x: test_x[:], y: test_y[:]}).tolist()
 f = lambda x:np.argmax(x)
-print(list(map(f,myPrediction)))
-print(test_y.iloc[0:5])
 
-#print('HERE')
-#for epoch in range(10000):
+myPrediction2 = list(map(f,myPrediction))
+
+
+a = list(map(f,myPrediction))
+b = np.argmax(test_y.values,1)
+#print(a)
+#print(b)
+print(np.equal(a,b))
+print('sum =',sum(np.equal(a,b)))
+#printsum(sum(np.equal(myPrediction2,test_y
+
+
     
 
     
