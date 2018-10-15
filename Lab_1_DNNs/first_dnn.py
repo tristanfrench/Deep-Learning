@@ -66,6 +66,24 @@ predictions_fcn = tf.nn.relu(tf.matmul(h_3, weights['w_y']) + bias['b_y'])
 
 
 cost_fcn = tf.losses.softmax_cross_entropy(onehot_labels=y, logits=predictions_fcn, scope="Cost_Function")
+optimizer = tf.train.AdagradOptimizer(0.1).minimize(cost_fcn)
+sess.run(tf.global_variables_initializer()) 
+
+for epoch in range(3000):
+    sess.run([optimizer], feed_dict={x: train_x, y: train_y})
+    myPrediction = sess.run(predictions_fcn, feed_dict={x: test_x, y: test_y}).tolist()
+    myPrediction = np.argmax(myPrediction,1)
+    if epoch % 100 == 0:
+        print('Accuracy at epoch:%d =' %epoch,sum( np.equal(myPrediction,groundTruth)) / (len(groundTruth)*1.0) )
+'''
+myPrediction = sess.run(predictions_fcn, feed_dict={x: test_x, y: test_y}).tolist()
+#print(myPrediction)
+print(np.argmax(myPrediction,1))
+print(groundTruth)
+print('here')
+#print(sum(np.equal(np.argmax(myPrediction,1),groundTruth)))
+print(sum(np.equal(np.argmax(myPrediction,1),groundTruth))/(len(groundTruth)*1.0) )
+'''
 '''
 prediction = tf.nn.softmax(tf.matmul(x,w) + b)
 
@@ -74,7 +92,7 @@ cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(prediction), axis=1))
 optimizer = tf.train.GradientDescentOptimizer(0.01).minimize(cost)
 sess.run(tf.global_variables_initializer()) 
 
-for epoch in range(10000):
+for epoch in range(1000):
     sess.run([optimizer], feed_dict={x: train_x, y: train_y})
     myPrediction = sess.run(prediction, feed_dict={x: test_x, y: test_y}).tolist()
     myPrediction = np.argmax(myPrediction,1)
