@@ -10,6 +10,8 @@ import os
 import os.path
 import numpy as np
 import pandas as pd
+
+
 sess = tf.Session()
 
 data = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data", sep=",",
@@ -64,27 +66,42 @@ h_2 = tf.nn.relu(tf.matmul(h_1, weights['w_2']) + bias['b_2'])
 h_3 = tf.nn.relu(tf.matmul(h_2, weights['w_3']) + bias['b_3'])
 predictions_fcn = tf.nn.relu(tf.matmul(h_3, weights['w_y']) + bias['b_y'])
 
+logs_path = "./logs/"
+g = tf.get_default_graph()
 
-cost_fcn = tf.losses.softmax_cross_entropy(onehot_labels=y, logits=predictions_fcn, scope="Cost_Function")
+with g.as_default():
+    with tf.name_scope('loss'):
+        cost_fcn = tf.losses.softmax_cross_entropy(onehot_labels=y, logits=predictions_fcn, scope="Cost_Function")
+        tf.summary.scalar('loss', cost_fcn)
+        
+merged = tf.summary.merge_all()
+train_writer = tf.summary.FileWriter(logs_path + '/train')
+test_writer = tf.summary.FileWriter(logs_path + '/test')
+
 optimizer = tf.train.AdagradOptimizer(0.1).minimize(cost_fcn)
 sess.run(tf.global_variables_initializer()) 
 
+
+
 for epoch in range(3000):
-    sess.run([optimizer], feed_dict={x: train_x, y: train_y})
-    myPrediction = sess.run(predictions_fcn, feed_dict={x: test_x, y: test_y}).tolist()
+    [_, summary_train] = sess.run([optimizer, merged], feed_dict={x: train_x, y: train_y})
+    [myPrediction,summary_test] = sess.run( [predictions_fcn, merged], feed_dict={x: test_x, y: test_y})
+    myPrediction = myPrediction.tolist()
     myPrediction = np.argmax(myPrediction,1)
+
+    train_writer.add_summary(summary_train, epoch)
+    test_writer.add_summary(summary_test, epoch)
+
     if epoch % 100 == 0:
         print('Accuracy at epoch:%d =' %epoch,sum( np.equal(myPrediction,groundTruth)) / (len(groundTruth)*1.0) )
-'''
-myPrediction = sess.run(predictions_fcn, feed_dict={x: test_x, y: test_y}).tolist()
-#print(myPrediction)
-print(np.argmax(myPrediction,1))
-print(groundTruth)
-print('here')
-#print(sum(np.equal(np.argmax(myPrediction,1),groundTruth)))
-print(sum(np.equal(np.argmax(myPrediction,1),groundTruth))/(len(groundTruth)*1.0) )
-'''
-'''
+
+
+        
+        
+        
+
+
+'''Perceptron code
 prediction = tf.nn.softmax(tf.matmul(x,w) + b)
 
 cost = tf.reduce_mean(-tf.reduce_sum(y * tf.log(prediction), axis=1))
