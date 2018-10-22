@@ -64,7 +64,7 @@ bias = {
 h_1 = tf.nn.relu(tf.matmul(x, weights['w_1']) + bias['b_1'])
 h_2 = tf.nn.relu(tf.matmul(h_1, weights['w_2']) + bias['b_2'])
 h_3 = tf.nn.relu(tf.matmul(h_2, weights['w_3']) + bias['b_3'])
-predictions_fcn = tf.nn.relu(tf.matmul(h_3, weights['w_y']) + bias['b_y'])
+predictions_fcn = tf.nn.relu(tf.matmul(h_3, weights['w_y']) + bias['b_y'])#dont relu, have to change this!!!
 
 logs_path = "./logs/"
 g = tf.get_default_graph()
