@@ -153,7 +153,7 @@ def main(_):
     optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
 
     # calculate the prediction and the accuracy
-    correct_prediction = tf.placeholder(tf.float32, [1])
+    #correct_prediction = tf.placeholder(tf.float32, [1])
     accuracy = tf.placeholder(tf.float32, [1])
 
     loss_summary = tf.summary.scalar('Loss', cross_entropy)
@@ -182,17 +182,20 @@ def main(_):
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels})
             
             # Prediction
-            [myPrediction,summary_test] = sess.run( [y_conv, training_summary], feed_dict={x: test_x, y: test_y})
-            accuracy = tf.reduce_sum(tf.equal(tf.argmax(myPrediction,1),tf.argmax(test_y,1) ))
+            [myPrediction,summary_test] = sess.run( [y_conv, training_summary], feed_dict={x: testImages, y_: testLabels})
+            print('HEREfsdfsdfsdfsdfsdfsdfsdfsdfsfdf')
+            accuracy = tf.equal(tf.argmax(myPrediction,1),tf.argmax(testLabels,1))
+            accuracy = tf.reduce_sum(tf.cast(accuracy, "float"))
+            #accuracy = tf.reduce_sum(tf.equal(tf.argmax(myPrediction,1),tf.argmax(testLabels,1) ))
     
            
-
+            
             if step % (FLAGS.log_frequency + 1)== 0:
                 summary_writer.add_summary(summary_str, step)
 
             # Validation: Monitoring accuracy using validation set
             if step % FLAGS.log_frequency == 0:
-                validation_accuracy, summary_str = sess.run([ validation_summary,accuracy], feed_dict={x: testImages, y_: testLabels})
+                validation_accuracy, summary_str = sess.run([ accuracy,validation_summary], feed_dict={x: testImages, y_: testLabels})
                 print('step %d, accuracy on validation batch: %g' % (step, validation_accuracy))
                 summary_writer_validation.add_summary(summary_str, step)
 
