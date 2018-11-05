@@ -46,9 +46,10 @@ tf.app.flags.DEFINE_string('log-dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
                            'Directory where to write event logs and checkpoint. (default: %(default)s)')
 
 
-run_log_dir = os.path.join(FLAGS.log_dir,
+#run_log_dir = os.path.join(FLAGS.log_dir,
                            'exp_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size,
                                                         lr=FLAGS.learning_rate))
+run_log_dir = os.path.join(FLAGS.log_dir, 'exp_BN_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
 
 def weight_variable(shape):
     """weight_variable generates a weight variable of a given shape."""
@@ -93,8 +94,13 @@ def deepnn(x):
     with tf.variable_scope('Conv_1'):
         W_conv1 = weight_variable([5, 5, FLAGS.img_channels, 32])
         b_conv1 = bias_variable([32])
-        h_conv1 = tf.nn.relu(tf.nn.conv2d(x_image, W_conv1, strides=[1, 1, 1, 1], padding='SAME', name='convolution') + b_conv1)
+        Z1 = conv2d(x_image, W_conv1)
+        z1_mean,z1_std = tf.nn.moments(Z1,axes=0)
+        #h_conv1 = tf.nn.relu(tf.nn.conv2d(x_image, W_conv1, strides=[1, 1, 1, 1], padding='SAME', name='convolution') + b_conv1)
+        #replace the above line with h_conv1_bn = tf.nn.relu(BN1) 
 
+
+        
         # Pooling layer - downsamples by 2X.
         h_pool1 = tf.nn.max_pool(h_conv1, ksize=[1, 2, 2, 1],
                           strides=[1, 2, 2, 1], padding='SAME', name='pooling')
@@ -112,11 +118,12 @@ def deepnn(x):
         w_2_dim = 1024
         w_y_dim = 10
 
-
+        
         w_1 = tf.Variable(tf.truncated_normal([4096, w_1_dim], stddev=0.1))
         b_1 = tf.Variable(tf.constant(0.1, shape=[w_1_dim]))
         h_fc1 = tf.nn.relu(tf.matmul(h_final, w_1) + b_1)
 
+        
         w_y = tf.Variable(tf.truncated_normal([1024,w_y_dim], stddev=0.1))
         b_y = tf.Variable(tf.constant(0.1, shape=[w_y_dim]))
         h_fcy = tf.matmul(h_fc1, w_y) + b_y
@@ -146,7 +153,10 @@ def main(_):
         cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     
     # Define your AdamOptimiser, using FLAGS.learning_rate to minimixe the loss function
-    optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
+    #optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
+    global_step = tf.Variable(0, trainable=False)
+    learning_rate = tf.train.exponential_decay(FLAGS.learning_rate,global_step ,1000,0.8)
+    optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy,global_step)
 
     # calculate the prediction and the accuracy
     #correct_prediction = tf.placeholder(tf.float32, [1])
@@ -167,7 +177,7 @@ def main(_):
     
     with tf.Session() as sess:
         summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph)
-        summary_writer_validation = tf.summary.FileWriter(run_log_dir + '_validate', sess.graph)
+        summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph)
 
         sess.run(tf.global_variables_initializer())
 
@@ -186,7 +196,8 @@ def main(_):
             # Validation: Monitoring accuracy using validation set
             if step % FLAGS.log_frequency == 0:
                 validation_accuracy, summary_str = sess.run([ accuracy,validation_summary], feed_dict={x: testImages, y_: testLabels})
-                print('step %d, accuracy on validation batch: %g' % (step, validation_accuracy))
+
+                print('step %d, accuracy on validation batch: %g' % (step, validation_accuracy),sess.run(learning_rate))
                 summary_writer_validation.add_summary(summary_str, step)
 
             # Save the model checkpoint periodically.
