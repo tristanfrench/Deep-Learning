@@ -154,7 +154,9 @@ def main(_):
 
     # calculate the prediction and the accuracy
     #correct_prediction = tf.placeholder(tf.float32, [1])
-    accuracy = tf.placeholder(tf.float32, [1])
+   # accuracy = tf.Variable(tf.float32, [1])
+    accuracy = tf.equal(tf.argmax(y_conv,1),tf.argmax(y_,1))
+    accuracy = tf.reduce_sum(tf.cast(accuracy, tf.float32))
 
     loss_summary = tf.summary.scalar('Loss', cross_entropy)
     acc_summary = tf.summary.scalar('Accuracy', accuracy)
@@ -182,13 +184,9 @@ def main(_):
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels})
             
             # Prediction
-            [myPrediction,summary_test] = sess.run( [y_conv, training_summary], feed_dict={x: testImages, y_: testLabels})
-            print('HEREfsdfsdfsdfsdfsdfsdfsdfsdfsfdf')
-            accuracy = tf.equal(tf.argmax(myPrediction,1),tf.argmax(testLabels,1))
-            accuracy = tf.reduce_sum(tf.cast(accuracy, "float"))
-            #accuracy = tf.reduce_sum(tf.equal(tf.argmax(myPrediction,1),tf.argmax(testLabels,1) ))
-    
-           
+            [myAccuracy,myPrediction,summary_test] = sess.run( [accuracy,y_conv, training_summary], feed_dict={x: testImages, y_: testLabels})
+            #print('HERE')
+            
             
             if step % (FLAGS.log_frequency + 1)== 0:
                 summary_writer.add_summary(summary_str, step)
