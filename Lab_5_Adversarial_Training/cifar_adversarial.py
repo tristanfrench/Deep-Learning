@@ -195,7 +195,7 @@ def main(_):
         # don't loop back when we reach the end of the test set
         while evaluated_images != cifar.nTestSamples:
             (testImages, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
-            test_accuracy_temp = sess.run([accuracy], feed_dict={x: testImages, y_: testLabels, is_training: False})
+            test_accuracy_temp = sess.run(accuracy, feed_dict={x: testImages, y_: testLabels, is_training: False})
 
             batch_count = batch_count + 1
             test_accuracy = test_accuracy + test_accuracy_temp
@@ -204,7 +204,7 @@ def main(_):
         test_accuracy = test_accuracy / batch_count
         print('test set: accuracy on test set: %0.3f' % test_accuracy)
 
-        '''
+        
          # resetting the internal batch indexes
         cifar.reset()
         evaluated_images = 0
@@ -213,8 +213,16 @@ def main(_):
         
         #Testing with adversarial set
         while evaluated_images != cifar.nTestSamples:
-            (_, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
-            adv_accuracy = sess.run([accuracy], feed_dict={x: x_adv, y_: testLabels, is_training: False})
+            (testImages, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
+            x_image = tf.reshape(testImages, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
+            test_img_summary = tf.summary.image('Test Images', x_image)
+            adv_images = sess.run(x_adv, feed_dict={x: testImages})
+            adv_test_img_summary = tf.summary.image('Adversarial test Images', adv_images)
+            adv_summary = tf.summary.merge([test_img_summary, adv_test_img_summary])
+            adversarial_writer = tf.summary.FileWriter(run_log_dir + "_adversarial", sess.graph)
+            adv_summary_str = sess.run([adv_summary], feed_dict={x: testImages, y_: testLabels})
+            test_writer.add_summary(adv_summary_str, step)
+            adv_accuracy = sess.run(accuracy, feed_dict={x: adv_images, y_: testLabels, is_training: False})
 
             batch_count = batch_count + 1
             adv_accuracy = adv_accuracy + test_accuracy_temp
@@ -222,7 +230,7 @@ def main(_):
 
         adv_accuracy = adv_accuracy / batch_count
         print('test set: accuracy on adversarial set: %0.3f' % adv_accuracy)
-        '''
+        
 
 if __name__ == '__main__':
     tf.app.run(main=main)
