@@ -18,7 +18,7 @@ import sys
 import numpy as np
 import os
 import os.path
-
+import random
 import tensorflow as tf
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'CIFAR10'))
@@ -49,7 +49,7 @@ tf.app.flags.DEFINE_string('log-dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
 #run_log_dir = os.path.join(FLAGS.log_dir,
 #                           'exp_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size,
 #                                                        lr=FLAGS.learning_rate))
-run_log_dir = os.path.join(FLAGS.log_dir, 'exp_BN_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
+run_log_dir = os.path.join(FLAGS.log_dir, 'exp_DA1_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
 
 def weight_variable(shape):
     """weight_variable generates a weight variable of a given shape."""
@@ -64,6 +64,8 @@ def bias_variable(shape):
 xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
 def deepnn(x,is_training):
     x_image = tf.reshape(x, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
+    if is_training == 1:
+        x_image = tf.map_fn(tf.image.random_flip_left_right,x_image)
     img_summary = tf.summary.image('Input_images', x_image)
     conv1 = tf.layers.conv2d(
         inputs=x_image,
@@ -149,8 +151,9 @@ def main(_):
     # saver for checkpoints
     saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
     with tf.Session() as sess:
-        summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph)
-        summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph)
+        summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
+        summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
+        
         sess.run(tf.global_variables_initializer())
         # Training and validation
         for step in range(FLAGS.max_steps):
