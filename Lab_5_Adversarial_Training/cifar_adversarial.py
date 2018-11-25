@@ -64,7 +64,7 @@ def bias_variable(shape):
     return tf.Variable(initial, name='biases')
 
 xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
-def deepnn(x,is_training):
+def deepnn(x,is_training=False):
     x_image = tf.reshape(x, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
     if is_training == 1:
         x_image = tf.map_fn(tf.image.random_flip_left_right,x_image)
@@ -78,13 +78,14 @@ def deepnn(x,is_training):
         kernel_initializer=xavier_initializer,
         name='conv1'
     )
-    conv1_bn = tf.nn.relu(tf.layers.batch_normalization(conv1,training=is_training))
+    conv1_bn = tf.nn.relu(tf.layers.batch_normalization(conv1,training=is_training,name='conv1_bn'))
     pool1 = tf.layers.max_pooling2d(
         inputs=conv1_bn,
         pool_size=[2, 2],
         strides=2,
         name='pool1'
     )
+
     conv2 = tf.layers.conv2d(
     inputs=pool1,
     filters=64,
@@ -94,21 +95,20 @@ def deepnn(x,is_training):
     kernel_initializer=xavier_initializer,
     name='conv2'
     )
-    conv2_bn = tf.nn.relu(tf.layers.batch_normalization(conv2,training=is_training))
+    conv2_bn = tf.nn.relu(tf.layers.batch_normalization(conv2,training=is_training,name='conv2_bn'))
     pool2 = tf.layers.max_pooling2d(
         inputs=conv2_bn,
         pool_size=[2, 2],
         strides=2,
         name='pool2'
     )
-    #print(np.shape(pool2))
     pool2_flat = tf.reshape(pool2, [-1,4096])
-    fc1 = tf.layers.dense(pool2_flat,units=1024,activation=tf.nn.relu) 
-    #print(np.shape(fc1))
-    fcy = tf.layers.dense(fc1,units=10) 
+    fc1 = tf.layers.dense(pool2_flat,units=1024,activation=tf.nn.relu,name='fc1') 
+    fcy = tf.layers.dense(fc1,units=10,name='fcy') 
     #h_final = tf.reshape(pool1, [-1,4096])
+    
+    return fcy #, img_summary
 
-    return fcy, img_summary
 
 ###############
 
@@ -127,57 +127,57 @@ def main(_):
     is_training = tf.placeholder(tf.bool)
     # Build the graph for the deep net
     with tf.variable_scope('model'):
-        y_conv, img_summary = deepnn(x,is_training)
+        x_fgsm = tf.placeholder(tf.float32, [None, FLAGS.img_width * FLAGS.img_height * FLAGS.img_channels])
+        y_conv = deepnn(x,is_training)
         model = CallableModelWrapper(deepnn, 'logits')
-    
 
     with tf.variable_scope('x_entropy'):
         cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     
-    # Define your AdamOptimiser, using FLAGS.learning_rate to minimixe the loss function
     #optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
     global_step = tf.Variable(0, trainable=False)
     learning_rate = tf.train.exponential_decay(FLAGS.learning_rate,global_step ,1000,0.8)
-    #optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy,global_step = global_step)
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):   
         optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy, global_step=global_step)
-    # calculate the prediction and the accuracy
-    #correct_prediction = tf.placeholder(tf.float32, [1])
-   # accuracy = tf.Variable(tf.float32, [1])
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.argmax(y_,1))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
 
     loss_summary = tf.summary.scalar('Loss', cross_entropy)
     acc_summary = tf.summary.scalar('Accuracy', accuracy)
     # summaries for TensorBoard visualisation
-    validation_summary = tf.summary.merge([img_summary, acc_summary])
-    training_summary = tf.summary.merge([img_summary, loss_summary])
-    test_summary = tf.summary.merge([img_summary, acc_summary])
+    #validation_summary = tf.summary.merge([img_summary, acc_summary])
+    #training_summary = tf.summary.merge([img_summary, loss_summary])
+    #test_summary = tf.summary.merge([img_summary, acc_summary])
     # saver for checkpoints
     saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
     with tf.Session() as sess:
+        with tf.variable_scope('model', reuse=True):
+            fgsm = FastGradientMethod(model, sess=sess)
+            x_adv = fgsm.generate(x, eps=0.05, clip_min=0.0, clip_max=1.0)
         summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
         summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
         
         sess.run(tf.global_variables_initializer())
+
         # Training and validation
         for step in range(FLAGS.max_steps):
             # Training: Backpropagation using train set
             (trainImages, trainLabels) = cifar.getTrainBatch()
             (testImages, testLabels) = cifar.getTestBatch()
-            _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
+            _ = sess.run(optimiser, feed_dict={x: trainImages, y_: trainLabels, is_training: True})
             
            
-            if step % (FLAGS.log_frequency + 1)== 0:
-                summary_writer.add_summary(summary_str, step)
+            #if step % (FLAGS.log_frequency + 1)== 0:
+                #summary_writer.add_summary(summary_str, step)
 
             # Validation: Monitoring accuracy using validation set
             if step % FLAGS.log_frequency == 0:
-                validation_accuracy, summary_str = sess.run([ accuracy,validation_summary], feed_dict={x: testImages, y_: testLabels, is_training: False})
+                
+                validation_accuracy = sess.run(accuracy, feed_dict={x: testImages, y_: testLabels, is_training: False})
 
                 print('step %d, accuracy on validation batch: %g' % (step, validation_accuracy),sess.run(learning_rate))
-                summary_writer_validation.add_summary(summary_str, step)
+                #summary_writer_validation.add_summary(summary_str, step)
 
             # Save the model checkpoint periodically.
             if step % FLAGS.save_model == 0 or (step + 1) == FLAGS.max_steps:
@@ -195,7 +195,7 @@ def main(_):
         # don't loop back when we reach the end of the test set
         while evaluated_images != cifar.nTestSamples:
             (testImages, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
-            test_accuracy_temp, _ = sess.run([accuracy, test_summary], feed_dict={x: testImages, y_: testLabels, is_training: False})
+            test_accuracy_temp = sess.run([accuracy], feed_dict={x: testImages, y_: testLabels, is_training: False})
 
             batch_count = batch_count + 1
             test_accuracy = test_accuracy + test_accuracy_temp
@@ -204,7 +204,25 @@ def main(_):
         test_accuracy = test_accuracy / batch_count
         print('test set: accuracy on test set: %0.3f' % test_accuracy)
 
+        '''
+         # resetting the internal batch indexes
+        cifar.reset()
+        evaluated_images = 0
+        adv_accuracy = 0
+        batch_count = 0
+        
+        #Testing with adversarial set
+        while evaluated_images != cifar.nTestSamples:
+            (_, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
+            adv_accuracy = sess.run([accuracy], feed_dict={x: x_adv, y_: testLabels, is_training: False})
 
+            batch_count = batch_count + 1
+            adv_accuracy = adv_accuracy + test_accuracy_temp
+            evaluated_images = evaluated_images + testLabels.shape[0]
+
+        adv_accuracy = adv_accuracy / batch_count
+        print('test set: accuracy on adversarial set: %0.3f' % adv_accuracy)
+        '''
 
 if __name__ == '__main__':
     tf.app.run(main=main)
