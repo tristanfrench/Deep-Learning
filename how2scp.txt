@@ -1,0 +1,1 @@
+scp C:/Users/tristan/Desktop/UNI/Deep-Learning/Lab_5_Adversarial_Training/cifar_adversarial.py tw15220@bc4login.acrc.bris.ac.uk:labsheets/Lab_5_Adversarial_Training
