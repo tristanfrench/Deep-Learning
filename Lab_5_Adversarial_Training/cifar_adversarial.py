@@ -64,8 +64,8 @@ def bias_variable(shape):
     return tf.Variable(initial, name='biases')
 
 xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
-def deepnn(x,is_training=False):
-    x_image = tf.reshape(x, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
+def deepnn(x_image,is_training=False):
+    
     if is_training == 1:
         x_image = tf.map_fn(tf.image.random_flip_left_right,x_image)
     img_summary = tf.summary.image('Input_images', x_image)
@@ -128,7 +128,8 @@ def main(_):
     # Build the graph for the deep net
     with tf.variable_scope('model'):
         x_fgsm = tf.placeholder(tf.float32, [None, FLAGS.img_width * FLAGS.img_height * FLAGS.img_channels])
-        y_conv = deepnn(x,is_training)
+        x_image = tf.reshape(x, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
+        y_conv = deepnn(x_image,is_training)
         model = CallableModelWrapper(deepnn, 'logits')
 
     with tf.variable_scope('x_entropy'):
@@ -154,20 +155,20 @@ def main(_):
     with tf.Session() as sess:
         with tf.variable_scope('model', reuse=True):
             fgsm = FastGradientMethod(model, sess=sess)
-            x_adv = fgsm.generate(x, eps=0.05, clip_min=0.0, clip_max=1.0)
+            x_adv = fgsm.generate(x_image, eps=0.05, clip_min=0.0, clip_max=1.0)
         summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
         summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
         
         sess.run(tf.global_variables_initializer())
 
         # Training and validation
-        for step in range(FLAGS.max_steps):
+        for step in range(0,FLAGS.max_steps,2):
             # Training: Backpropagation using train set
             (trainImages, trainLabels) = cifar.getTrainBatch()
             (testImages, testLabels) = cifar.getTestBatch()
             _ = sess.run(optimiser, feed_dict={x: trainImages, y_: trainLabels, is_training: True})
-            
-           
+            adv_images = sess.run(x_adv, feed_dict={x: trainImages})
+            _ = sess.run(optimiser, feed_dict={x_image: adv_images, y_: trainLabels, is_training: True})
             #if step % (FLAGS.log_frequency + 1)== 0:
                 #summary_writer.add_summary(summary_str, step)
 
@@ -210,19 +211,21 @@ def main(_):
         evaluated_images = 0
         adv_accuracy = 0
         batch_count = 0
+
         
+        adversarial_writer = tf.summary.FileWriter(run_log_dir + "_adversarial", sess.graph)
+        test_img_summary = tf.summary.image('Test Images', x_image)
+        adv_test_img_summary = tf.summary.image('Adversarial test Images', x_adv)
+        adv_summary = tf.summary.merge([test_img_summary, adv_test_img_summary])
         #Testing with adversarial set
         while evaluated_images != cifar.nTestSamples:
             (testImages, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
-            x_image = tf.reshape(testImages, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
-            test_img_summary = tf.summary.image('Test Images', x_image)
+            #x_image = tf.reshape(testImages, [-1, FLAGS.img_width, FLAGS.img_height, FLAGS.img_channels])
+            
             adv_images = sess.run(x_adv, feed_dict={x: testImages})
-            adv_test_img_summary = tf.summary.image('Adversarial test Images', adv_images)
-            adv_summary = tf.summary.merge([test_img_summary, adv_test_img_summary])
-            adversarial_writer = tf.summary.FileWriter(run_log_dir + "_adversarial", sess.graph)
-            adv_summary_str = sess.run([adv_summary], feed_dict={x: testImages, y_: testLabels})
-            test_writer.add_summary(adv_summary_str, step)
-            adv_accuracy = sess.run(accuracy, feed_dict={x: adv_images, y_: testLabels, is_training: False})
+            adv_summary_str = sess.run(adv_summary, feed_dict={x: testImages, y_: testLabels})
+            adversarial_writer.add_summary(adv_summary_str)
+            adv_accuracy = sess.run(accuracy, feed_dict={x_image: adv_images, y_: testLabels, is_training: False})
 
             batch_count = batch_count + 1
             adv_accuracy = adv_accuracy + test_accuracy_temp
