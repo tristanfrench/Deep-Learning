@@ -225,10 +225,10 @@ def main(_):
             adv_images = sess.run(x_adv, feed_dict={x: testImages})
             adv_summary_str = sess.run(adv_summary, feed_dict={x: testImages, y_: testLabels})
             adversarial_writer.add_summary(adv_summary_str)
-            adv_accuracy = sess.run(accuracy, feed_dict={x_image: adv_images, y_: testLabels, is_training: False})
+            adv_accuracy_temp = sess.run(accuracy, feed_dict={x_image: adv_images, y_: testLabels, is_training: False})
 
             batch_count = batch_count + 1
-            adv_accuracy = adv_accuracy + test_accuracy_temp
+            adv_accuracy = adv_accuracy + adv_accuracy_temp
             evaluated_images = evaluated_images + testLabels.shape[0]
 
         adv_accuracy = adv_accuracy / batch_count
