@@ -73,6 +73,12 @@ with g.as_default():
     with tf.name_scope('loss'):
         cost_fcn = tf.losses.softmax_cross_entropy(onehot_labels=y, logits=predictions_fcn, scope="Cost_Function")
         tf.summary.scalar('loss', cost_fcn)
+    with tf.name_scope('accuracy'):
+        #sum( np.equal(myPrediction,groundTruth)) / (len(groundTruth)*1.0)
+        accuracy = tf.equal(tf.argmax(predictions_fcn,1),tf.argmax(groundTruth,1))
+        accuracy = tf.reduce_sum(tf.cast(accuracy, tf.float32))
+        tf.summary.scalar('accuracy', accuracy)
+
         
 merged = tf.summary.merge_all()
 train_writer = tf.summary.FileWriter(logs_path + '/train')
@@ -81,19 +87,19 @@ test_writer = tf.summary.FileWriter(logs_path + '/test')
 optimizer = tf.train.AdagradOptimizer(0.1).minimize(cost_fcn)
 sess.run(tf.global_variables_initializer()) 
 
-
-
 for epoch in range(3000):
     [_, summary_train] = sess.run([optimizer, merged], feed_dict={x: train_x, y: train_y})
     [myPrediction,summary_test] = sess.run( [predictions_fcn, merged], feed_dict={x: test_x, y: test_y})
     myPrediction = myPrediction.tolist()
     myPrediction = np.argmax(myPrediction,1)
 
+    [accuracy,summary_test] = sess.run( [accuracy, merged], feed_dict={x: test_x, y: test_y})
+    
     train_writer.add_summary(summary_train, epoch)
     test_writer.add_summary(summary_test, epoch)
 
     if epoch % 100 == 0:
-        print('Accuracy at epoch:%d =' %epoch,sum( np.equal(myPrediction,groundTruth)) / (len(groundTruth)*1.0) )
+        print('Accuracy at epoch:%d =' %epoch,accuracy )
 
 
         

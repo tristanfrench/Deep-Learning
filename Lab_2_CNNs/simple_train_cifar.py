@@ -184,7 +184,7 @@ def main(_):
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels})
             
             # Prediction
-            [myAccuracy,myPrediction,summary_test] = sess.run( [accuracy,y_conv, training_summary], feed_dict={x: testImages, y_: testLabels})
+            #[myAccuracy,myPrediction,summary_test] = sess.run( [accuracy,y_conv, training_summary], feed_dict={x: testImages, y_: testLabels})
             #print('HERE')
             
             

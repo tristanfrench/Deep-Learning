@@ -138,7 +138,7 @@ def main(_):
         optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy, global_step=global_step)
     # calculate the prediction and the accuracy
     #correct_prediction = tf.placeholder(tf.float32, [1])
-   # accuracy = tf.Variable(tf.float32, [1])
+    #accuracy = tf.Variable(tf.float32, [1])
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.argmax(y_,1))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
 
