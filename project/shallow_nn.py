@@ -4,6 +4,14 @@
 #                                                          #
 ############################################################
 
+
+'''
+Current objective:
+Need the labels of each segment to be one hot encoded, i.e 2 becomes: [0,0,1,0,0,0,0,0,0,0]
+'''
+
+
+
 '''
 DATA explained:
 length of each key is 11250
@@ -38,12 +46,12 @@ tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
 
 # Optimisation hyperparameters
-tf.app.flags.DEFINE_integer('batch_size', 256, 'Number of examples per mini-batch (default: %(default)d)')
+tf.app.flags.DEFINE_integer('batch_size', 8, 'Number of examples per mini-batch (default: %(default)d)')
 tf.app.flags.DEFINE_float('learning_rate', 5e-05, 'Learning rate (default: %(default)d)')
 tf.app.flags.DEFINE_integer('img_width', 32, 'Image width (default: %(default)d)')
 tf.app.flags.DEFINE_integer('img_height', 32, 'Image height (default: %(default)d)')
 tf.app.flags.DEFINE_integer('img_channels', 3, 'Image channels (default: %(default)d)')
-tf.app.flags.DEFINE_integer('num_classes', 10, 'Number of classes (default: %(default)d)')
+tf.app.flags.DEFINE_integer('num_classes', 1, 'Number of classes (default: %(default)d)')
 tf.app.flags.DEFINE_string('log_dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
                            'Directory where to write event logs and checkpoint. (default: %(default)s)')
 
@@ -59,7 +67,6 @@ def parse_function(sounds, labels):
     return sounds, labels
 
 def batch_this(sounds,labels,batch_size):
-
     n_sounds = len(sounds)
     labels = tf.constant(labels)
     sounds = tf.constant(sounds)
@@ -67,7 +74,7 @@ def batch_this(sounds,labels,batch_size):
     dataset = dataset.shuffle(buffer_size=n_sounds) 
     #dataset = dataset.map(parse_function)
     dataset = dataset.batch(batch_size).repeat()
-    iterator = dataset.make_one_shot_iterator()
+    iterator = dataset.make_one_shot_iterator()#makes it lag
     return iterator
 
 
@@ -83,9 +90,9 @@ def bias_variable(shape):
     initial = tf.constant(0.1, shape=shape)
     return tf.Variable(initial, name='biases')
 
-xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
+#xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
 def shallownn(x,is_training):
-    
+    x = tf.reshape(x, [-1,80,80,1])
     #if is_training == 1:
      #   x_image = tf.map_fn(tf.image.random_flip_left_right,x_image)
     #img_summary = tf.summary.image('Input_images', x_image)
@@ -98,47 +105,47 @@ def shallownn(x,is_training):
         #kernel_initializer=xavier_initializer,
         name='conv1'
     )
-    #conv1_bn = tf.nn.relu(tf.layers.batch_normalization(conv1,training=is_training))
+    conv1 = tf.nn.relu(conv1)
     pool1 = tf.layers.max_pooling2d(
         inputs=conv1,
         pool_size=[1, 20],
-        strides=1,
+        strides=[1,20],
         name='pool1'
     )
+    pool1 = tf.layers.flatten(pool1)
     conv2 = tf.layers.conv2d(
-    inputs=pool1,
-    filters=64,
-    kernel_size=[5, 5],
-    padding='same',
-    use_bias=False,
-    kernel_initializer=xavier_initializer,
-    name='conv2'
+        inputs=x,
+        filters=16,
+        kernel_size=[21,20],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2'
     )
-    conv2_bn = tf.nn.relu(tf.layers.batch_normalization(conv2,training=is_training))
+    conv2 = tf.nn.relu(conv2)
     pool2 = tf.layers.max_pooling2d(
-        inputs=conv2_bn,
-        pool_size=[2, 2],
-        strides=2,
+        inputs=conv2,
+        pool_size=[20,1],
+        strides=[20,1],
         name='pool2'
     )
-    #print(np.shape(pool2))
-    pool2_flat = tf.reshape(pool2, [-1,4096])
-    fc1 = tf.layers.dense(pool2_flat,units=1024,activation=tf.nn.relu) 
-    #print(np.shape(fc1))
+    pool2 = tf.layers.flatten(pool2)
+    cnn_out = tf.concat([pool1,pool2],1)
+    cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
+    fc1 = tf.layers.dense(cnn_out,units=200,activation=tf.nn.relu) 
     fcy = tf.layers.dense(fc1,units=10) 
-    #h_final = tf.reshape(pool1, [-1,4096])
-
     return fcy
+
 
 ###############
 
 #def main(_):
 def main(_):
     tf.reset_default_graph()
-
+    
     # Import data
-    train_sounds = np.load('data/train_data_postmel.npy')
-    train_labels = np.load('data/train_labels.npy')
+    train_sounds = np.load('data/train_data_postmel.npy')[:10]
+    train_labels = np.load('data/train_labels.npy')[:10]
     test_sounds = np.load('data/test_data_postmel.npy')
     test_labels = np.load('data/test_labels.npy')
     print('data Loaded')
@@ -160,7 +167,7 @@ def main(_):
     #for i in range(np.shape(a)[0]):
     #   train_sounds.append(melspectrogram(a[i][:]))
     #   print(i)
-    #print('here1')
+    print('batch train')
     train_data = batch_this(train_sounds,train_labels,FLAGS.batch_size)
     train_batch = train_data.get_next()
     
@@ -171,27 +178,27 @@ def main(_):
     #np.random.shuffle(test_sounds)
     #np.random.seed(0)
     #np.random.shuffle(test_labels)
-    test_data = batch_this(test_sounds,test_labels,FLAGS.batch_size)
-    test_batch = test_data.get_next()
-
+    #test_data = batch_this(test_sounds,test_labels,FLAGS.batch_size)
+    #test_batch = test_data.get_next()
+    print('test batched')
     
     with tf.variable_scope('inputs'):
-        # Create the model
-        x = tf.placeholder(tf.float32, [None, FLAGS.img_width * FLAGS.img_height * FLAGS.img_channels])
-        # Define loss and optimizer
-        y_ = tf.placeholder(tf.float32, [None, FLAGS.num_classes])
+        # Input placeholder
+        x = tf.placeholder(tf.float32, [None,80,80])
+        # Label placeholder
+        y_ = tf.placeholder(tf.int32, [None])
     is_training = tf.placeholder(tf.bool)
     # Build the graph for the deep net
     y_conv = shallownn(x,is_training)
-
     with tf.variable_scope('x_entropy'):
-        cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
+        cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     
     # Define your AdamOptimiser, using FLAGS.learning_rate to minimixe the loss function
     #optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
     #global_step = tf.Variable(0, trainable=False)
     #learning_rate = tf.train.exponential_decay(FLAGS.learning_rate,global_step ,1000,0.8)
     optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate,beta1=0.9,beta2=0.999,epsilon=1e-08).minimize(cross_entropy)
+    
     #update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     #with tf.control_dependencies(update_ops):   
     #   optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy, global_step=global_step)
@@ -200,34 +207,42 @@ def main(_):
     #accuracy = tf.Variable(tf.float32, [1])
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.argmax(y_,1))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
-
-    loss_summary = tf.summary.scalar('Loss', cross_entropy)
-    acc_summary = tf.summary.scalar('Accuracy', accuracy)
+    #loss_summary = tf.summary.scalar('Loss', cross_entropy)
+    #acc_summary = tf.summary.scalar('Accuracy', accuracy)
     # summaries for TensorBoard visualisation
-    validation_summary = tf.summary.merge([img_summary, acc_summary])
-    training_summary = tf.summary.merge([img_summary, loss_summary])
-    test_summary = tf.summary.merge([img_summary, acc_summary])
+    #validation_summary = tf.summary.merge([img_summary, acc_summary])
+    #training_summary = tf.summary.merge([img_summary, loss_summary])
+    #test_summary = tf.summary.merge([img_summary, acc_summary])
     # saver for checkpoints
-    saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
+    #saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
+    
     with tf.Session() as sess:
-        summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
-        summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
+        print('lol')
+        #summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
+        #summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
         
         sess.run(tf.global_variables_initializer())
-
+        print('ok')
         
         # Training and validation
         
         for step in range(1):
             # Training: Backpropagation using train set
+            print('here')
             [train_sounds,train_labels] = sess.run(train_batch)
-            train_labels = np.transpose(np.array([train_labels])) # makes it a column vector, required
+            #train_sounds = np.ones([3,80,80])
+            #train_labels = np.ones([3,10])
+            #train_labels = np.transpose(np.array([train_labels])) # makes it a column vector, required
+            print(train_labels)
             #validation
             #[validation_images,validation_labels] = sess.run(validation_batch)
             #validation_labels = np.transpose(np.array([validation_labels])) # makes it a column vector, required
             #test
-
-            sess.run([optimiser], feed_dict={x: train_sounds, y_: train_labels})    
+            #train_sounds = np.ones([80,80])
+            #train_labels = np.ones(1)
+            print(np.shape(train_labels))
+            sess.run([optimiser], feed_dict={x: train_sounds, y_: train_labels}) 
+            print('has trained')   
             
         '''
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
@@ -274,3 +289,185 @@ def main(_):
 
 if __name__ == '__main__':
     tf.app.run(main=main)
+
+def deepnn(x,is_training):
+    x = tf.reshape(x, [-1,80,80,1])
+    #Pipeline 1
+    #Layer 1
+    conv1_1 = tf.layers.conv2d(
+        inputs=x,
+        filters=16,
+        kernel_size=[10,23],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv1_1'
+    )
+    conv1_1 = tf.nn.relu(conv1_1)
+    pool1_1 = tf.layers.max_pooling2d(
+        inputs=conv1_1,
+        pool_size=[2,2],
+        strides=2,
+        name='pool1_1'
+    )
+    #Layer 2
+    conv1_2 = tf.layers.conv2d(
+        inputs=pool1_1,
+        filters=32,
+        kernel_size=[5,11],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv1_2'
+    )
+    conv1_2 = tf.nn.relu(conv1_2)
+    pool1_2 = tf.layers.max_pooling2d(
+        inputs=conv1_2,
+        pool_size=[2,2],
+        strides=2,
+        name='pool1_2'
+    )
+    #Layer 3
+    conv1_3 = tf.layers.conv2d(
+        inputs=pool1_2,
+        filters=64,
+        kernel_size=[3,5],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv1_3'
+    )
+    conv1_3 = tf.nn.relu(conv1_3)
+    pool1_3 = tf.layers.max_pooling2d(
+        inputs=conv1_3,
+        pool_size=[2,2],
+        strides=2,
+        name='pool1_3'
+    )
+    #Layer 4
+    conv1_4 = tf.layers.conv2d(
+        inputs=pool1_3,
+        filters=128,
+        kernel_size=[2,4],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv1_4'
+    )
+    conv1_4 = tf.nn.relu(conv1_4)
+    pool1_4 = tf.layers.max_pooling2d(
+        inputs=conv1_4,
+        pool_size=[1,5],
+        strides=[1,5],
+        name='pool1_3'
+    )
+    pool1_4 = tf.layers.flatten(pool1_4)
+    ########
+    #Pipeline 2
+    #Layer 1
+    conv2_1 = tf.layers.conv2d(
+        inputs=x,
+        filters=16,
+        kernel_size=[10,23],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2_1'
+    )
+    conv2_1 = tf.nn.relu(conv2_1)
+    pool2_1 = tf.layers.max_pooling2d(
+        inputs=conv2_1,
+        pool_size=[2,2],
+        strides=2,
+        name='pool2_1'
+    )
+    #Layer 2
+    conv2_2 = tf.layers.conv2d(
+        inputs=pool2_1,
+        filters=32,
+        kernel_size=[5,11],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2_2'
+    )
+    conv2_2 = tf.nn.relu(conv2_2)
+    pool2_2 = tf.layers.max_pooling2d(
+        inputs=conv2_2,
+        pool_size=[2,2],
+        strides=2,
+        name='pool2_2'
+    )
+    #Layer 3
+    conv2_3 = tf.layers.conv2d(
+        inputs=pool2_2,
+        filters=64,
+        kernel_size=[3,5],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2_3'
+    )
+    conv2_3 = tf.nn.relu(conv2_3)
+    pool2_3 = tf.layers.max_pooling2d(
+        inputs=conv2_3,
+        pool_size=[2,2],
+        strides=2,
+        name='pool2_3'
+    )
+    #Layer 4
+    conv2_4 = tf.layers.conv2d(
+        inputs=pool2_3,
+        filters=128,
+        kernel_size=[2,4],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2_4'
+    )
+    conv2_4 = tf.nn.relu(conv2_4)
+    pool2_4 = tf.layers.max_pooling2d(
+        inputs=conv2_4,
+        pool_size=[1,5],
+        strides=[1,5],
+        name='pool2_3'
+    )
+    pool2_4 = tf.layers.flatten(pool2_4)
+    #######
+    #Merge
+    cnn_out = tf.concat([pool1_4,pool2_4],1)
+    cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
+    fc1 = tf.layers.dense(cnn_out,units=200)#,activation=tf.nn.relu)
+
+
+
+
+
+
+
+
+
+
+
+    pool1 = tf.layers.flatten(pool1)
+    conv2 = tf.layers.conv2d(
+        inputs=x,
+        filters=16,
+        kernel_size=[21,20],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2'
+    )
+    conv2 = tf.nn.relu(conv2)
+    pool2 = tf.layers.max_pooling2d(
+        inputs=conv2,
+        pool_size=[20,1],
+        strides=[20,1],
+        name='pool2'
+    )
+    pool2 = tf.layers.flatten(pool2)
+    cnn_out = tf.concat([pool1,pool2],1)
+    cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
+    fc1 = tf.layers.dense(cnn_out,units=200)#,activation=tf.nn.relu) 
+    return fc1
