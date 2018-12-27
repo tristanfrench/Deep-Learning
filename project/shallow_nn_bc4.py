@@ -31,9 +31,9 @@ FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('data_dir', os.getcwd() + '/dataset/',
                             'Directory where the dataset will be stored and checkpoint. (default: %(default)s)')
-tf.app.flags.DEFINE_integer('max_epochs', 100,
+tf.app.flags.DEFINE_integer('max_steps', 6000,
                             'Number of mini-batches to train on. (default: %(default)d)')
-tf.app.flags.DEFINE_integer('log_frequency', 150,
+tf.app.flags.DEFINE_integer('log_frequency', 10,
                             'Number of steps between logging results to the console and saving summaries (default: %(default)d)')
 tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
@@ -60,18 +60,15 @@ def parse_function(sounds, labels):
     sounds = melspectrogram(sounds)
     return sounds, labels
 
-def batch_this(sounds,labels,batch_size,n_sounds,repeat=0):
-    #n_sounds = len(sounds)
-    #labels = tf.constant(labels)
-    #sounds = tf.constant(sounds)
+def batch_this(sounds,labels,batch_size):
+    n_sounds = len(sounds)
+    labels = tf.constant(labels)
+    sounds = tf.constant(sounds)
     dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels))
     dataset = dataset.shuffle(buffer_size=n_sounds) 
     #dataset = dataset.map(parse_function)
-    if repeat:
-        dataset = dataset.batch(batch_size).repeat()
-    else:
-        dataset = dataset.batch(batch_size)#.repeat()
-    iterator = dataset.make_initializable_iterator()#makes it lag
+    dataset = dataset.batch(batch_size).repeat()
+    iterator = dataset.make_one_shot_iterator()#makes it lag
     return iterator
 
 
@@ -204,9 +201,9 @@ def deepnn(x,is_training):
         inputs=conv1_4,
         pool_size=[1,5],
         strides=[1,5],
-        name='pool1_4'
+        name='pool1_3'
     )
-    pool1_4 = tf.reshape(pool1_4, [-1,2560])
+    pool1_4 = tf.layers.flatten(pool1_4)
     ########
     #Pipeline 2
     #Layer 1
@@ -275,53 +272,66 @@ def deepnn(x,is_training):
         inputs=conv2_4,
         pool_size=[1,5],
         strides=[1,5],
-        name='pool2_4'
+        name='pool2_3'
     )
-    pool2_4 = tf.reshape(pool2_4, [-1,2560])
+    pool2_4 = tf.layers.flatten(pool2_4)
     #######
     #Merge
     cnn_out = tf.concat([pool1_4,pool2_4],1)
-    cnn_out = tf.layers.dropout(cnn_out,rate=0.25)
-    #fc1 = tf.layers.dense(cnn_out,units=200)#,activation=tf.nn.relu)
-    fc1 = tf.layers.dense(cnn_out,units=200,activation=tf.nn.relu) 
-    fcy = tf.layers.dense(fc1,units=10) 
-    return fcy
+    cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
+    fc1 = tf.layers.dense(cnn_out,units=200)#,activation=tf.nn.relu)
+
+    pool1 = tf.layers.flatten(pool1)
+    conv2 = tf.layers.conv2d(
+        inputs=x,
+        filters=16,
+        kernel_size=[21,20],
+        padding='same',
+        use_bias=False,
+        #kernel_initializer=xavier_initializer,
+        name='conv2'
+    )
+    conv2 = tf.nn.relu(conv2)
+    pool2 = tf.layers.max_pooling2d(
+        inputs=conv2,
+        pool_size=[20,1],
+        strides=[20,1],
+        name='pool2'
+    )
+    pool2 = tf.layers.flatten(pool2)
+    cnn_out = tf.concat([pool1,pool2],1)
+    cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
+    fc1 = tf.layers.dense(cnn_out,units=200)#,activation=tf.nn.relu) 
+    return fc1
 
 ###############
 
+#def main(_):
 def main(_):
     tf.reset_default_graph()
     
     # Import data
-    train_data_sounds = np.load('data/train_data_postmel.npy')
-    train_data_labels = np.load('data/train_labels.npy')
-    test_data_sounds = np.load('data/test_data_postmel.npy')
-    test_data_labels = np.load('data/test_labels.npy')
-    img_number = len(test_data_labels)
+    train_sounds = np.load('data/train_data_postmel.npy')
+    train_labels = np.load('data/train_labels.npy')
+    test_sounds = np.load('data/test_data_postmel.npy')
+    test_labels = np.load('data/test_labels.npy')
     print('Data Loaded')
-
-    train_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
-    train_labels_placeholder = tf.placeholder(tf.int32, [None])
-    test_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
-    test_labels_placeholder = tf.placeholder(tf.int32, [None])
-
-
     #Train split
     np.random.seed(0)
-    np.random.shuffle(train_data_sounds)
+    np.random.shuffle(train_sounds)
     np.random.seed(0)
-    np.random.shuffle(train_data_labels)
-    n_sounds = len(train_data_labels)
-    train_iterator = batch_this(train_data_placeholder,train_labels_placeholder,FLAGS.batch_size,n_sounds)
-    train_batch = train_iterator.get_next()
+    np.random.shuffle(train_labels)
+
+    train_data = batch_this(train_sounds,train_labels,FLAGS.batch_size)
+    train_batch = train_data.get_next()
     
     #Test split
     np.random.seed(0)
-    np.random.shuffle(test_data_sounds)
+    np.random.shuffle(test_sounds)
     np.random.seed(0)
-    np.random.shuffle(test_data_labels)
-    test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1)
-    test_batch = test_iterator.get_next()
+    np.random.shuffle(test_labels)
+    test_data = batch_this(test_sounds,test_labels,FLAGS.batch_size)
+    test_batch = test_data.get_next()
     print('All batched')
     
     with tf.variable_scope('inputs'):
@@ -331,7 +341,6 @@ def main(_):
         y_ = tf.placeholder(tf.int32, [None])
     is_training = tf.placeholder(tf.bool)
     # Build the graph for the deep net
-    #y_conv = shallownn(x,is_training)
     y_conv = shallownn(x,is_training)
     with tf.variable_scope('x_entropy'):
         cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
@@ -339,50 +348,18 @@ def main(_):
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.cast(y_, tf.int64))
     print('yes')
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
-
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for epoch in range(FLAGS.max_epochs):
+        # Training and validation
+        for step in range(FLAGS.max_steps):
             # Training: Backpropagation using train set
-            sess.run(train_iterator.initializer,feed_dict={train_data_placeholder:train_data_sounds,train_labels_placeholder:train_data_labels})
-            sess.run(test_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
-            step = 0
-            print(epoch)
-            while True:
-                #print(step)
-                try:
-                    [train_sounds,train_labels] = sess.run(train_batch)
-                    sess.run([optimiser], feed_dict={x: train_sounds, y_: train_labels}) 
-                    #print(train_labels)
-                except tf.errors.OutOfRangeError:
-                    #print('break')
-                    break
-                #Accuracy
-                
-                [test_sounds,test_labels] = sess.run(test_batch)
-                
-                #if step % FLAGS.log_frequency == 0:
-                if step == 0:
-                    validation_accuracy = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
-                    print(' step: %g,accuracy: %g' % (step,validation_accuracy))
-                
-                step+=1
-        print('Training done')
-        evaluated_images = 0
-        test_accuracy = 0
-        batch_count = 0
-        sess.run(test_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
-        while evaluated_images != img_number:
+            [train_sounds,train_labels] = sess.run(train_batch)
             [test_sounds,test_labels] = sess.run(test_batch)
-            evaluated_images += len(test_labels)
-            test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
-            
-            test_accuracy += test_accuracy_temp
-            batch_count += 1
-            
-        
-        test_accuracy = test_accuracy / batch_count
-        print('test set: accuracy on test set: %0.3f' % (test_accuracy))
+            sess.run([optimiser], feed_dict={x: train_sounds, y_: train_labels}) 
+ 
+            if step % FLAGS.log_frequency == 0:
+                validation_accuracy = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
+                print(' step: %g,accuracy: %g' % ( step,validation_accuracy))
             
         '''
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})

@@ -40,7 +40,7 @@ tf.app.flags.DEFINE_string('data_dir', os.getcwd() + '/dataset/',
                             'Directory where the dataset will be stored and checkpoint. (default: %(default)s)')
 tf.app.flags.DEFINE_integer('max_steps', 10000,
                             'Number of mini-batches to train on. (default: %(default)d)')
-tf.app.flags.DEFINE_integer('log_frequency', 10,
+tf.app.flags.DEFINE_integer('log_frequency', 1,
                             'Number of steps between logging results to the console and saving summaries (default: %(default)d)')
 tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
@@ -144,8 +144,8 @@ def main(_):
     tf.reset_default_graph()
     
     # Import data
-    train_sounds = np.load('data/train_data_postmel.npy')[:10]
-    train_labels = np.load('data/train_labels.npy')[:10]
+    train_sounds = np.load('data/train_data_postmel.npy')[:100]
+    train_labels = np.load('data/train_labels.npy')[:100]
     test_sounds = np.load('data/test_data_postmel.npy')
     test_labels = np.load('data/test_labels.npy')
     print('data Loaded')
@@ -167,19 +167,19 @@ def main(_):
     #for i in range(np.shape(a)[0]):
     #   train_sounds.append(melspectrogram(a[i][:]))
     #   print(i)
-    print('batch train')
+    
     train_data = batch_this(train_sounds,train_labels,FLAGS.batch_size)
     train_batch = train_data.get_next()
-    
+    print('train batched')
     #Test split
     #test_sounds = test_set['data']
     #test_labels = test_set['labels']
-    #np.random.seed(0)
-    #np.random.shuffle(test_sounds)
-    #np.random.seed(0)
-    #np.random.shuffle(test_labels)
-    #test_data = batch_this(test_sounds,test_labels,FLAGS.batch_size)
-    #test_batch = test_data.get_next()
+    np.random.seed(0)
+    np.random.shuffle(test_sounds)
+    np.random.seed(0)
+    np.random.shuffle(test_labels)
+    test_data = batch_this(test_sounds,test_labels,FLAGS.batch_size)
+    test_batch = test_data.get_next()
     print('test batched')
     
     with tf.variable_scope('inputs'):
@@ -205,7 +205,7 @@ def main(_):
     # calculate the prediction and the accuracy
     #correct_prediction = tf.placeholder(tf.float32, [1])
     #accuracy = tf.Variable(tf.float32, [1])
-    accuracy = tf.equal(tf.argmax(y_conv,1),tf.argmax(y_,1))
+    accuracy = tf.equal(tf.argmax(y_conv,1),tf.cast(y_, tf.int64))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
     #loss_summary = tf.summary.scalar('Loss', cross_entropy)
     #acc_summary = tf.summary.scalar('Accuracy', accuracy)
@@ -217,33 +217,22 @@ def main(_):
     #saver = tf.train.Saver(tf.global_variables(), max_to_keep=1)
     
     with tf.Session() as sess:
-        print('lol')
         #summary_writer = tf.summary.FileWriter(run_log_dir + '_train', sess.graph,flush_secs=5)
         #summary_writer_validation = tf.summary.FileWriter(run_log_dir +'_validate', sess.graph,flush_secs=5)
         
         sess.run(tf.global_variables_initializer())
-        print('ok')
         
         # Training and validation
         
-        for step in range(1):
+        for step in range(10):
             # Training: Backpropagation using train set
-            print('here')
             [train_sounds,train_labels] = sess.run(train_batch)
-            #train_sounds = np.ones([3,80,80])
-            #train_labels = np.ones([3,10])
-            #train_labels = np.transpose(np.array([train_labels])) # makes it a column vector, required
-            print(train_labels)
-            #validation
-            #[validation_images,validation_labels] = sess.run(validation_batch)
-            #validation_labels = np.transpose(np.array([validation_labels])) # makes it a column vector, required
-            #test
-            #train_sounds = np.ones([80,80])
-            #train_labels = np.ones(1)
-            print(np.shape(train_labels))
+            [test_sounds,test_labels] = sess.run(test_batch)
             sess.run([optimiser], feed_dict={x: train_sounds, y_: train_labels}) 
-            print('has trained')   
-            
+            #Accuracy
+            if step % FLAGS.log_frequency == 0:
+                validation_accuracy = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
+                print(' step: %g,accuracy: %g' % ( step,validation_accuracy))
         '''
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
             
