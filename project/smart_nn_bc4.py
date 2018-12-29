@@ -31,7 +31,7 @@ FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('data_dir', os.getcwd() + '/dataset/',
                             'Directory where the dataset will be stored and checkpoint. (default: %(default)s)')
-tf.app.flags.DEFINE_integer('max_epochs', 100,
+tf.app.flags.DEFINE_integer('max_epochs', 50,
                             'Number of mini-batches to train on. (default: %(default)d)')
 tf.app.flags.DEFINE_integer('log_frequency', 150,
                             'Number of steps between logging results to the console and saving summaries (default: %(default)d)')
@@ -60,13 +60,15 @@ def parse_function(sounds, labels):
     sounds = melspectrogram(sounds)
     return sounds, labels
 
-def batch_this(sounds,labels,batch_size,n_sounds,repeat=0):
+def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0):
     #n_sounds = len(sounds)
     #labels = tf.constant(labels)
     #sounds = tf.constant(sounds)
-    dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels))
+    if track_id==0:
+        dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels))
+    else:
+        dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels,track_id))
     dataset = dataset.shuffle(buffer_size=n_sounds) 
-    #dataset = dataset.map(parse_function)
     if repeat:
         dataset = dataset.batch(batch_size).repeat()
     else:
@@ -296,15 +298,16 @@ def main(_):
     train_data_sounds = np.load('data/train_data_postmel.npy')
     train_data_labels = np.load('data/train_labels.npy')
     test_data_sounds = np.load('data/test_data_postmel.npy')
-    test_data_labels = np.load('data/test_labels.npy')
-    img_number = len(test_data_labels)
+    test_data_labels_og = np.load('data/test_labels.npy')
+    test_id = np.load('data/test_id.npy')
+    img_number = len(test_data_labels_og)
     print('Data Loaded')
 
     train_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     train_labels_placeholder = tf.placeholder(tf.int32, [None])
     test_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     test_labels_placeholder = tf.placeholder(tf.int32, [None])
-
+    test_id_placeholder = tf.placeholder(tf.int32, [None])
 
     #Train split
     np.random.seed(0)
@@ -319,9 +322,14 @@ def main(_):
     np.random.seed(0)
     np.random.shuffle(test_data_sounds)
     np.random.seed(0)
-    np.random.shuffle(test_data_labels)
+    test_data_labels = np.random.permutation(test_data_labels_og)
+    #np.random.shuffle(test_data_labels)
+    np.random.seed(0)
+    np.random.shuffle(test_id)
     test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1)
     test_batch = test_iterator.get_next()
+    test_iterator_plusId = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1,test_id_placeholder)
+    test_batch_plusId = test_iterator_plusId.get_next()
     print('All batched')
     
     with tf.variable_scope('inputs'):
@@ -337,7 +345,6 @@ def main(_):
         cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
     optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate,beta1=0.9,beta2=0.999,epsilon=1e-08).minimize(cross_entropy)
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.cast(y_, tf.int64))
-    print('yes')
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
 
     with tf.Session() as sess:
@@ -383,7 +390,45 @@ def main(_):
         
         test_accuracy = test_accuracy / batch_count
         print('test set: accuracy on test set: %0.3f' % (test_accuracy))
-            
+
+        evaluated_images = 0
+        test_accuracy = 0
+        batch_count = 0
+        prob_array = np.zeros([250,10])
+        sess.run(test_iterator_plusId.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels,test_id_placeholder:test_id})
+        while evaluated_images != img_number:
+            [test_sounds,test_labels,test_id] = sess.run(test_batch_plusId)
+            current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels})
+            for idx,current_id in enumerate(test_id):
+                prob_array[current_id] += current_proba[idx,:]
+            evaluated_images += len(test_labels)
+        max_proba = sess.run(tf.argmax(prob_array,1))
+        label_per_track = []
+        for i in range(int(len(test_data_labels_og)/15)):
+            label_per_track.append(test_data_labels_og[i*15])
+        max_proba_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(max_proba,label_per_track),tf.float32)))
+        print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
+        
+        '''
+        evaluated_images = 0
+        test_accuracy = 0
+        batch_count = 0
+        prob_array = np.zeros([250,10])
+        sess.run(test_iterator_plusId.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels,test_id_placeholder:test_id})
+        while evaluated_images != img_number:
+            [test_sounds,test_labels,test_id] = sess.run(test_batch_plusId)
+            current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels})
+            for idx,current_id in enumerate(test_id):
+                prob_array[current_id] += current_proba[idx,:]
+            evaluated_images += len(test_labels)
+        max_proba = sess.run(tf.argmax(prob_array,1))
+        label_per_track = []
+        for i in range(int(len(test_data_labels_og)/15)):
+            label_per_track.append(test_data_labels_og[i*15])
+        print(np.shape(label_per_track))
+        max_proba_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(max_proba,label_per_track),tf.float32)))
+        print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
+        '''
         '''
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
             
