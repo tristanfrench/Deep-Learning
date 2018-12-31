@@ -5,12 +5,6 @@
 ############################################################
 
 
-'''
-Current objective:
-Need the labels of each segment to be one hot encoded, i.e 2 becomes: [0,0,1,0,0,0,0,0,0,0]
-'''
-
-
 
 '''
 DATA explained:
@@ -20,10 +14,15 @@ length of each key is 11250
 'track_id': A list where each entry is a unique track id and all the audio segments belonging to the same track 
 have the same id, useful for computing the maximum probability and  majority vote metrics.
 track id example: [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1 etc]
-theres 15 audio segments per track, all have the label per track
+theres 15 audio segments per track, all have the same label per track
 each audio segment has length 20462
 '''
 
+'''max prob
+The output probabilities of the Softmax layer for the corresponding number of classes of the datasets 
+are summed up for all segments belonging to the same input file. 
+The predicted class is determined by the maximum probability among the classes from the summed probabilities
+'''
 
 import sys
 import numpy as np
@@ -62,11 +61,14 @@ tf.app.flags.DEFINE_string('log_dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
 run_log_dir = os.path.join(FLAGS.log_dir, 'exp_DA1_bs_{bs}_lr_{lr}'.format(bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
 
 
-def batch_this(sounds,labels,batch_size,n_sounds,repeat=0):
+def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0):
 
     #labels = tf.constant(labels)
     #sounds = tf.constant(sounds)
-    dataset = tf.data.Dataset.from_tensor_slices((sounds,labels))
+    if track_id==0:
+        dataset = tf.data.Dataset.from_tensor_slices((sounds,labels))
+    else:
+        dataset = tf.data.Dataset.from_tensor_slices((sounds,labels,track_id))
     dataset = dataset.shuffle(buffer_size=n_sounds) 
     if repeat:
         dataset = dataset.batch(batch_size).repeat()
@@ -282,16 +284,19 @@ def main(_):
     # Import data
     train_data_sounds = np.load('data/train_data_postmel.npy')#[:100]
     train_data_labels = np.load('data/train_labels.npy')#[:100]
+    train_id = np.load('data/train_id.npy')
     test_data_sounds = np.load('data/test_data_postmel.npy')#[:100]
     test_data_labels = np.load('data/test_labels.npy')#[:100]
+    test_id = np.load('data/test_id.npy')
+ 
     img_number = len(test_data_labels)
-    print('data Loaded')
+    print('Data Loaded')
 
     train_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     train_labels_placeholder = tf.placeholder(tf.int32, [None])
     test_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     test_labels_placeholder = tf.placeholder(tf.int32, [None])
-
+    test_id_placeholder = tf.placeholder(tf.int32, [None])
 
     np.random.seed(0)
     np.random.shuffle(train_data_sounds)
@@ -302,11 +307,16 @@ def main(_):
     train_batch = train_iterator.get_next()
     print('train batched')
 
+   
     np.random.seed(0)
     np.random.shuffle(test_data_sounds)
     np.random.seed(0)
     np.random.shuffle(test_data_labels)
-    test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,n_sounds,1)
+    np.random.seed(0)
+    np.random.shuffle(test_id)
+    valid_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,n_sounds,1)
+    valid_batch = valid_iterator.get_next()
+    test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,n_sounds,1,test_id_placeholder)
     test_batch = test_iterator.get_next()
     print('test batched')
     
@@ -330,6 +340,7 @@ def main(_):
     #update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     #with tf.control_dependencies(update_ops):   
     #   optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy, global_step=global_step)
+     
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.cast(y_, tf.int64))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
     #loss_summary = tf.summary.scalar('Loss', cross_entropy)
@@ -349,10 +360,10 @@ def main(_):
 
         # Training and validation
         
-        for epoch in range(10):
+        for epoch in range(1):
             # Training: Backpropagation using train set
             sess.run(train_iterator.initializer,feed_dict={train_data_placeholder:train_data_sounds,train_labels_placeholder:train_data_labels})
-            sess.run(test_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
+            sess.run(valid_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
             step = 0
             print(epoch)
             while True:
@@ -363,25 +374,54 @@ def main(_):
                     break
                 #Accuracy
                 
-                [test_sounds,test_labels] = sess.run(test_batch)
+                [test_sounds,test_labels] = sess.run(valid_batch)
                 if step % FLAGS.log_frequency == 0:
                     validation_accuracy = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
                     print(' step: %g,accuracy: %g' % (step,validation_accuracy))
                 step+=1
-
+                break
+        
         print('Training done')
-        evaluated_images = 0
-        test_accuracy = 0
-        batch_count = 0
-        sess.run(test_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
-        while evaluated_images != img_number:
-            [test_sounds,test_labels] = sess.run(test_batch)
-            evaluated_images += len(test_labels)
-            test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
-            test_accuracy += test_accuracy_temp
-            batch_count += 1
-        test_accuracy = test_accuracy / batch_count
-        print('test set: accuracy on test set: %0.3f' % (test_accuracy))
+        a = 2
+        if a == 1:
+            evaluated_images = 0
+            test_accuracy = 0
+            batch_count = 0
+            sess.run(valid_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels})
+            while evaluated_images != img_number:
+                [test_sounds,test_labels] = sess.run(valid_batch)
+                evaluated_images += len(test_labels)
+                test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
+                test_accuracy += test_accuracy_temp
+                batch_count += 1
+            test_accuracy = test_accuracy / batch_count
+            print('test set: accuracy on test set: %0.3f' % (test_accuracy))
+        elif a == 2:
+            evaluated_images = 0
+            test_accuracy = 0
+            batch_count = 0
+            prob_array = np.zeros([250,10])
+            sess.run(test_iterator.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels,test_id_placeholder:test_id})
+            while evaluated_images != img_number:
+                [test_sounds,test_labels,test_id] = sess.run(test_batch)
+                current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels})
+                print(np.shape(current_proba))
+                
+                for idx,current_id in enumerate(test_id):
+                    prob_array[current_id] += current_proba[idx,:]
+                
+                #print(sess.run(y_conv,feed_dict={x: test_sounds[:1], y_: test_labels[:1]}))
+                print('------')
+                #print(test_labels)
+                #print('------')
+                evaluated_images += len(test_labels)
+                #test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
+                #test_accuracy += test_accuracy_temp
+                #batch_count += 1
+            #test_accuracy = test_accuracy / batch_count
+            print('test set: accuracy on test set: %0.3f' % (test_accuracy)) 
+
+
         '''
             _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
             
