@@ -13,7 +13,7 @@ test key: 3750
 'track_id': A list where each entry is a unique track id and all the audio segments belonging to the same track 
 have the same id, useful for computing the maximum probability and  majority vote metrics.
 track id example: [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1 etc]
-theres 15 audio segments per track, all have the label per track
+theres 15 audio segments per track, all have the same label per track
 each audio segment has length 20462
 '''
 
@@ -26,9 +26,11 @@ import random
 import tensorflow as tf
 import pickle
 from utils import melspectrogram
+np.set_printoptions(suppress=True)
+np.set_printoptions(1)
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_integer('max_epochs', 100,
+tf.app.flags.DEFINE_integer('max_epochs', 1,
                             'Number of mini-batches to train on. (default: %(default)d)')
 tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
@@ -41,20 +43,34 @@ tf.app.flags.DEFINE_string('log_dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
 
 run_log_dir = os.path.join(FLAGS.log_dir, '{m}_bs_{bs}_lr_{lr}'.format(m=FLAGS.model_type, bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
 
+'''
+Find one or more examples that are incorrectly classified by the raw measure and
+  are corrected by max or major. 
 
-def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0):
+Find at least one failure case where the correct class is the second/third class in the predictions. 
+Find at least one failure case where the confidence of the correct class is low. 
+For each case, discuss whether you can explain the failure. 
+'''
+
+
+
+
+def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0,track_tag=0):
     #n_sounds = len(sounds)
     #labels = tf.constant(labels)
     #sounds = tf.constant(sounds)
     if track_id==0:
         dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels))
-    else:
+    elif track_tag==0:
         dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels,track_id))
-    dataset = dataset.shuffle(buffer_size=n_sounds) 
+    else:
+        dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels,track_id,track_tag))
+    #dataset = dataset.shuffle(buffer_size=n_sounds) 
     if repeat:
         dataset = dataset.batch(batch_size).repeat()
     else:
         dataset = dataset.batch(batch_size)#.repeat()
+    
     iterator = dataset.make_initializable_iterator()#makes it lag
     return iterator
 
@@ -269,19 +285,23 @@ def main(_):
     test_data_sounds = np.load('data/test_data_postmel.npy')
     test_data_labels_og = np.load('data/test_labels.npy')
     test_data_id = np.load('data/test_id.npy')
+    test_data_tag = np.arange(3750)
     img_number = len(test_data_labels_og)
     print('Data Loaded')
     log_per_epoch = int(1000/FLAGS.max_epochs)
     log_frequency = len(train_data_labels)/FLAGS.batch_size/log_per_epoch
-    #log_frequency+=1
+    if log_frequency == 0 :
+        log_frequency+=1
     train_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     train_labels_placeholder = tf.placeholder(tf.int32, [None])
     test_data_placeholder = tf.placeholder(tf.float32, [None, 80, 80])
     test_labels_placeholder = tf.placeholder(tf.int32, [None])
     test_id_placeholder = tf.placeholder(tf.int32, [None])
+    test_tag_placeholder = tf.placeholder(tf.int32, [None])
 
     #Train split
     random_n = np.random.randint(0,100000)
+    random_n = 0
     np.random.seed(random_n)
     np.random.shuffle(train_data_sounds)
     np.random.seed(random_n)
@@ -290,17 +310,21 @@ def main(_):
     train_iterator = batch_this(train_data_placeholder,train_labels_placeholder,FLAGS.batch_size,n_sounds)
     train_batch = train_iterator.get_next()
     random_n = np.random.randint(0,100000)
+    random_n = 0
     #Test split
-    np.random.seed(random_n)
-    np.random.shuffle(test_data_sounds)
-    np.random.seed(random_n)
-    test_data_labels = np.random.permutation(test_data_labels_og)
-    np.random.seed(random_n)
-    np.random.shuffle(test_data_id)
+    #np.random.seed(random_n)
+    #np.random.shuffle(test_data_sounds)
+    #np.random.seed(random_n)
+    #test_data_labels = np.random.permutation(test_data_labels_og)
+    test_data_labels = test_data_labels_og
+    #np.random.seed(random_n)
+    #np.random.shuffle(test_data_id)
+    #np.random.seed(random_n)
+    #np.random.shuffle(test_data_tag)
     test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1)
     test_batch = test_iterator.get_next()
-    test_iterator_plusId = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1,test_id_placeholder)
-    test_batch_plusId = test_iterator_plusId.get_next()
+    test_iterator_plus = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1,test_id_placeholder,test_tag_placeholder)
+    test_batch_plus = test_iterator_plus.get_next()
     print('All batched')
     
     with tf.variable_scope('inputs'):
@@ -350,33 +374,46 @@ def main(_):
                 if step % 100 == 0:
                     print(' step: %g,accuracy: %g' % (step,validation_accuracy))
                 
-                #add summaries
+                #Add summaries
+                '''
                 if step % log_frequency == 0:
                     train_writer.add_summary(train_summary,step)
                     test_writer.add_summary(test_summary,step)
+                '''
                 step+=1
         print('Training done')
         
-        #Raw probability
+        ############################################################
+        #                                                          #
+        #                EVALUATION                                #
+        #                                                          #
+        ############################################################
         evaluated_images = 0
         test_accuracy = 0
         batch_count = 0
         prob_array_max_prob = np.zeros([250,10])
         prob_array_maj_vote = np.zeros([250,10])
-        sess.run(test_iterator_plusId.initializer,feed_dict={test_data_placeholder:test_data_sounds,test_labels_placeholder:test_data_labels,test_id_placeholder:test_data_id})
+        segment_predic = np.zeros([250,15])
+        segment_tag = np.zeros([250,15])
+        sess.run(test_iterator_plus.initializer,feed_dict={test_data_placeholder:test_data_sounds,
+                                                           test_labels_placeholder:test_data_labels,test_id_placeholder:test_data_id,test_tag_placeholder:test_data_tag})
         while evaluated_images != img_number:
-            [test_sounds,test_labels,test_id] = sess.run(test_batch_plusId)
+            [test_sounds,test_labels,test_id,test_tag] = sess.run(test_batch_plus)
             #Outputs of cnn for current batch
             #Get pure predictions for current batch and softmax them
             current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels})
             current_proba = sess.run(tf.nn.softmax(current_proba,1))
             current_argmax = sess.run(tf.argmax(current_proba,1))
+                
             #loop through id of batch and for each track, find prediction and add +1 to the column of class
             for idx,current_id in enumerate(test_id):
                 #add softmax values for max prob
                 prob_array_max_prob[current_id] += current_proba[idx,:]
                 #add 1 at argmax value for majority vote
                 prob_array_maj_vote[current_id,current_argmax[idx]] += 1
+
+                segment_predic[current_id,test_tag[idx]%15] += current_argmax[idx]
+                segment_tag[current_id,test_tag[idx]%15] += test_tag[idx]
             evaluated_images += len(test_labels)
             #add accuracy for raw proba
             test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
@@ -385,57 +422,32 @@ def main(_):
 
         test_accuracy = test_accuracy / batch_count
         print('test set: accuracy on test set: %0.3f' % (test_accuracy))
+        #prediction per track for max proba
         max_proba = sess.run(tf.argmax(prob_array_max_prob,1))  
+        
         #get 1st labels for all consecutive segments of same track  
         label_per_track = []
         for i in range(int(len(test_data_labels_og)/15)):
             label_per_track.append(test_data_labels_og[i*15])
+        for i in range(len(max_proba)):
+            if max_proba[i] == label_per_track[i]:
+                track_chosen = i
+                print('i',i)
+                break
         max_proba_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(max_proba,label_per_track),tf.float32)))
         print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
         majority_vote = sess.run(tf.argmax(prob_array_maj_vote,1))
         majority_vote_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(majority_vote,label_per_track),tf.float32)))
         print('test set: Majority vote accuracy on test set: %0.3f' % (majority_vote_accuracy)) 
-        
-        '''
-            _, summary_str = sess.run([optimiser, training_summary], feed_dict={x: trainImages, y_: trainLabels, is_training: True})
-            
-           
-            if step % (FLAGS.log_frequency + 1)== 0:
-                summary_writer.add_summary(summary_str, step)
+        print('-------')
+        print(prob_array_max_prob[track_chosen])
+        print(prob_array_maj_vote[track_chosen])
+        print(max_proba[track_chosen])
+        print(label_per_track[track_chosen])
+        print(segment_predic[track_chosen])
+        print(segment_tag[track_chosen])
 
-            # Validation: Monitoring accuracy using validation set
-            if step % FLAGS.log_frequency == 0:
-                validation_accuracy, summary_str = sess.run([ accuracy,validation_summary], feed_dict={x: testImages, y_: testLabels, is_training: False})
-
-                print('step %d, accuracy on validation batch: %g' % (step, validation_accuracy),sess.run(learning_rate))
-                summary_writer_validation.add_summary(summary_str, step)
-
-            # Save the model checkpoint periodically.
-            if step % FLAGS.save_model == 0 or (step + 1) == FLAGS.max_steps:
-                checkpoint_path = os.path.join(run_log_dir + '_train', 'model.ckpt')
-                saver.save(sess, checkpoint_path, global_step=step)
-
-        # Testing
-
-        # resetting the internal batch indexes
-        cifar.reset()
-        evaluated_images = 0
-        test_accuracy = 0
-        batch_count = 0
-
-        # don't loop back when we reach the end of the test set
-        while evaluated_images != cifar.nTestSamples:
-            (testImages, testLabels) = cifar.getTestBatch(allowSmallerBatches=True)
-            test_accuracy_temp, _ = sess.run([accuracy, test_summary], feed_dict={x: testImages, y_: testLabels, is_training: False})
-
-            batch_count = batch_count + 1
-            test_accuracy = test_accuracy + test_accuracy_temp
-            evaluated_images = evaluated_images + testLabels.shape[0]
-
-        test_accuracy = test_accuracy / batch_count
-        print('test set: accuracy on test set: %0.3f' % test_accuracy)
-        '''
-    print('done')
+    #print('done')
 
 
 
