@@ -17,6 +17,12 @@ theres 15 audio segments per track, all have the same label per track
 each audio segment has length 20462
 '''
 
+##
+'''
+doing batch norm, getting very low accuracy, try messing around with it, try putting it in the code
+and not a function
+'''
+
 
 import sys
 import numpy as np
@@ -30,18 +36,20 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(1)
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_integer('max_epochs', 1,
+tf.app.flags.DEFINE_integer('max_epochs', 100,
                             'Number of mini-batches to train on. (default: %(default)d)')
 tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
 tf.app.flags.DEFINE_string('model_type', 'shallow','Type of model used, shallow or deep. (default: %(default)s)')
+tf.app.flags.DEFINE_string('learning_type', 'normal','Decaying learning rate or not. (default: %(default)s)')
+tf.app.flags.DEFINE_string('initialiser', 'normal','Xavier initialiser or not. (default: %(default)s)')
+tf.app.flags.DEFINE_string('batch_norm', 'True','batch norm or not. (default: %(default)s)')
 tf.app.flags.DEFINE_integer('batch_size', 64, 'Number of examples per mini-batch (default: %(default)d)')
-#if batch is 128, 30 iterations is 1 epoch
 tf.app.flags.DEFINE_float('learning_rate', 5e-05, 'Learning rate (default: %(default)d)')
 tf.app.flags.DEFINE_string('log_dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
                            'Directory where to write event logs and checkpoint. (default: %(default)s)')
 
-run_log_dir = os.path.join(FLAGS.log_dir, '{m}_bs_{bs}_lr_{lr}'.format(m=FLAGS.model_type, bs=FLAGS.batch_size, lr=FLAGS.learning_rate))
+run_log_dir = os.path.join(FLAGS.log_dir, '{m}_bs_{bs}_{lt}'.format(m=FLAGS.model_type, bs=FLAGS.batch_size, lt=FLAGS.learning_type))
 
 '''
 Find one or more examples that are incorrectly classified by the raw measure and
@@ -65,7 +73,7 @@ def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0,track_tag=0
         dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels,track_id))
     else:
         dataset = tf.contrib.data.Dataset.from_tensor_slices((sounds,labels,track_id,track_tag))
-    #dataset = dataset.shuffle(buffer_size=n_sounds) 
+    dataset = dataset.shuffle(buffer_size=n_sounds) 
     if repeat:
         dataset = dataset.batch(batch_size).repeat()
     else:
@@ -74,8 +82,16 @@ def batch_this(sounds,labels,batch_size,n_sounds,repeat=0,track_id=0,track_tag=0
     iterator = dataset.make_initializable_iterator()#makes it lag
     return iterator
 
-#xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
+def relu_norm(x,is_training):
+    if FLAGS.batch_norm == 'True':
+        return tf.nn.relu(tf.layers.batch_normalization(x,training=is_training))
+    elif FLAGS.batch_norm == 'False':
+        return tf.nn.relu(x)
 def shallownn(x,is_training):
+    if FLAGS.initialiser == 'xavier':
+        xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True)
+    elif FLAGS.initialiser == 'normal':
+        xavier_initializer = None
     x = tf.reshape(x, [-1,80,80,1])
     #if is_training == 1:
      #   x_image = tf.map_fn(tf.image.random_flip_left_right,x_image)
@@ -86,17 +102,17 @@ def shallownn(x,is_training):
         kernel_size=[10,23],
         padding='same',
         use_bias=False,
-        #kernel_initializer=xavier_initializer,
+        kernel_initializer=xavier_initializer,
         name='conv1'
     )
-    conv1 = tf.nn.relu(conv1)
+    
+    conv1 = relu_norm(conv1,is_training)
     pool1 = tf.layers.max_pooling2d(
         inputs=conv1,
         pool_size=[1, 20],
         strides=[1,20],
         name='pool1'
     )
-    #pool1 = np.ndarray.flatten(pool1)
     pool1 = tf.reshape(pool1, [-1,5120])
     conv2 = tf.layers.conv2d(
         inputs=x,
@@ -104,10 +120,10 @@ def shallownn(x,is_training):
         kernel_size=[21,20],
         padding='same',
         use_bias=False,
-        #kernel_initializer=xavier_initializer,
+        kernel_initializer=xavier_initializer,
         name='conv2'
     )
-    conv2 = tf.nn.relu(conv2)
+    conv2 = relu_norm(conv2,is_training)
     pool2 = tf.layers.max_pooling2d(
         inputs=conv2,
         pool_size=[20,1],
@@ -115,7 +131,6 @@ def shallownn(x,is_training):
         name='pool2'
     )
     pool2 = tf.reshape(pool2, [-1,5120])
-    #pool2 = np.ndarray.flatten(pool2)
     cnn_out = tf.concat([pool1,pool2],1)
     cnn_out = tf.layers.dropout(cnn_out,rate=0.1)
     fc1 = tf.layers.dense(cnn_out,units=200,activation=tf.nn.relu)
@@ -278,7 +293,6 @@ def deepnn(x,is_training):
 
 def main(_):
     tf.reset_default_graph()
-    
     # Import data
     train_data_sounds = np.load('data/train_data_postmel.npy')
     train_data_labels = np.load('data/train_labels.npy')
@@ -303,23 +317,24 @@ def main(_):
     random_n = np.random.randint(0,100000)
     random_n = 0
     np.random.seed(random_n)
-    np.random.shuffle(train_data_sounds)
+    #np.random.shuffle(train_data_sounds)
     np.random.seed(random_n)
-    np.random.shuffle(train_data_labels)
+    #np.random.shuffle(train_data_labels)
     n_sounds = len(train_data_labels)
     train_iterator = batch_this(train_data_placeholder,train_labels_placeholder,FLAGS.batch_size,n_sounds)
     train_batch = train_iterator.get_next()
     random_n = np.random.randint(0,100000)
     random_n = 0
     #Test split
-    #np.random.seed(random_n)
+    np.random.seed(random_n)
     #np.random.shuffle(test_data_sounds)
-    #np.random.seed(random_n)
+    np.random.seed(random_n)
     #test_data_labels = np.random.permutation(test_data_labels_og)
     test_data_labels = test_data_labels_og
-    #np.random.seed(random_n)
+    #test_data_labels = test_data_labels_og
+    np.random.seed(random_n)
     #np.random.shuffle(test_data_id)
-    #np.random.seed(random_n)
+    np.random.seed(random_n)
     #np.random.shuffle(test_data_tag)
     test_iterator = batch_this(test_data_placeholder,test_labels_placeholder,FLAGS.batch_size,len(test_data_labels),1)
     test_batch = test_iterator.get_next()
@@ -340,7 +355,17 @@ def main(_):
         y_conv = deepnn(x,is_training)
     with tf.variable_scope('x_entropy'):
         cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_, logits=y_conv))
-    optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate,beta1=0.9,beta2=0.999,epsilon=1e-08).minimize(cross_entropy)
+    
+    l1_regularizer = tf.contrib.layers.l1_regularizer(scale=0.0001)
+    all_weights = tf.trainable_variables()
+    regularization_factor = tf.contrib.layers.apply_regularization(l1_regularizer, weights_list= all_weights)
+    cross_entropy += regularization_factor 
+    if FLAGS.learning_type == 'decay':
+        global_step = tf.Variable(0, trainable=False)
+        learning_rate = tf.train.exponential_decay(FLAGS.learning_rate,global_step ,1000,0.8)
+        optimiser = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy,global_step=global_step)
+    elif FLAGS.learning_type == 'normal':
+        optimiser = tf.train.AdamOptimizer(FLAGS.learning_rate,beta1=0.9,beta2=0.999,epsilon=1e-08).minimize(cross_entropy)
     accuracy = tf.equal(tf.argmax(y_conv,1),tf.cast(y_, tf.int64))
     accuracy = tf.reduce_mean(tf.cast(accuracy, tf.float32))
 
@@ -365,14 +390,14 @@ def main(_):
             while True:
                 try:
                     [train_sounds,train_labels] = sess.run(train_batch)
-                    _,train_summary = sess.run([optimiser,merged], feed_dict={x: train_sounds, y_: train_labels}) 
+                    _,train_summary = sess.run([optimiser,merged], feed_dict={x: train_sounds, y_: train_labels,is_training:True}) 
                 except tf.errors.OutOfRangeError:
                     break
                 #Accuracy
                 [test_sounds,test_labels] = sess.run(test_batch)
-                validation_accuracy,test_summary = sess.run([accuracy,merged], feed_dict={x: test_sounds, y_: test_labels})
-                if step % 100 == 0:
-                    print(' step: %g,accuracy: %g' % (step,validation_accuracy))
+                validation_accuracy,test_summary = sess.run([accuracy,merged], feed_dict={x: test_sounds, y_: test_labels, is_training:False})
+                #if step % 170 == 0:
+                print(' step: %g,accuracy: %g' % (step,validation_accuracy))
                 
                 #Add summaries
                 '''
@@ -381,7 +406,7 @@ def main(_):
                     test_writer.add_summary(test_summary,step)
                 '''
                 step+=1
-        print('Training done')
+        #print('Training done')
         
         ############################################################
         #                                                          #
@@ -401,7 +426,7 @@ def main(_):
             [test_sounds,test_labels,test_id,test_tag] = sess.run(test_batch_plus)
             #Outputs of cnn for current batch
             #Get pure predictions for current batch and softmax them
-            current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels})
+            current_proba = sess.run(y_conv,feed_dict={x: test_sounds, y_: test_labels, is_training:False})
             current_proba = sess.run(tf.nn.softmax(current_proba,1))
             current_argmax = sess.run(tf.argmax(current_proba,1))
                 
@@ -416,12 +441,12 @@ def main(_):
                 segment_tag[current_id,test_tag[idx]%15] += test_tag[idx]
             evaluated_images += len(test_labels)
             #add accuracy for raw proba
-            test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels})
+            test_accuracy_temp = sess.run(accuracy, feed_dict={x: test_sounds, y_: test_labels, is_training:False})
             test_accuracy += test_accuracy_temp
             batch_count += 1
 
         test_accuracy = test_accuracy / batch_count
-        print('test set: accuracy on test set: %0.3f' % (test_accuracy))
+        #print('test set: accuracy on test set: %0.3f' % (test_accuracy))
         #prediction per track for max proba
         max_proba = sess.run(tf.argmax(prob_array_max_prob,1))  
         
@@ -432,20 +457,26 @@ def main(_):
         for i in range(len(max_proba)):
             if max_proba[i] == label_per_track[i]:
                 track_chosen = i
-                print('i',i)
                 break
         max_proba_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(max_proba,label_per_track),tf.float32)))
-        print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
+        #print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
         majority_vote = sess.run(tf.argmax(prob_array_maj_vote,1))
         majority_vote_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(majority_vote,label_per_track),tf.float32)))
-        print('test set: Majority vote accuracy on test set: %0.3f' % (majority_vote_accuracy)) 
-        print('-------')
+        #print('test set: Majority vote accuracy on test set: %0.3f' % (majority_vote_accuracy)) 
+        print(test_accuracy,max_proba_accuracy,majority_vote_accuracy)
+        #print(FLAGS.initialiser)
+        #print('-------')
+        '''
         print(prob_array_max_prob[track_chosen])
         print(prob_array_maj_vote[track_chosen])
         print(max_proba[track_chosen])
         print(label_per_track[track_chosen])
         print(segment_predic[track_chosen])
         print(segment_tag[track_chosen])
+        '''
+        #print(FLAGS.learning_type)
+        #print(FLAGS.initialiser)
+        print(FLAGS.batch_norm)
 
     #print('done')
 
@@ -453,3 +484,12 @@ def main(_):
 
 if __name__ == '__main__':
     tf.app.run(main=main)
+
+
+
+#normal:
+#0.68, 0.82, 0.8
+#0.65, 0.81, 0.8
+#0.67 0.82 0.80
+
+#xavier:
