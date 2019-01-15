@@ -36,15 +36,15 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(1)
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_integer('max_epochs', 100,
+tf.app.flags.DEFINE_integer('max_epochs', 10,
                             'Number of mini-batches to train on. (default: %(default)d)')
 tf.app.flags.DEFINE_integer('save_model', 1000,
                             'Number of steps between model saves (default: %(default)d)')
 tf.app.flags.DEFINE_string('model_type', 'shallow','Type of model used, shallow or deep. (default: %(default)s)')
 tf.app.flags.DEFINE_string('learning_type', 'normal','Decaying learning rate or not. (default: %(default)s)')
 tf.app.flags.DEFINE_string('initialiser', 'normal','Xavier initialiser or not. (default: %(default)s)')
-tf.app.flags.DEFINE_string('batch_norm', 'True','batch norm or not. (default: %(default)s)')
-tf.app.flags.DEFINE_integer('batch_size', 64, 'Number of examples per mini-batch (default: %(default)d)')
+tf.app.flags.DEFINE_string('batch_norm', 'False','batch norm or not. (default: %(default)s)')
+tf.app.flags.DEFINE_integer('batch_size', 16, 'Number of examples per mini-batch (default: %(default)d)')
 tf.app.flags.DEFINE_float('learning_rate', 5e-05, 'Learning rate (default: %(default)d)')
 tf.app.flags.DEFINE_string('log_dir', '{cwd}/logs/'.format(cwd=os.getcwd()),
                            'Directory where to write event logs and checkpoint. (default: %(default)s)')
@@ -397,7 +397,7 @@ def main(_):
                 [test_sounds,test_labels] = sess.run(test_batch)
                 validation_accuracy,test_summary = sess.run([accuracy,merged], feed_dict={x: test_sounds, y_: test_labels, is_training:False})
                 #if step % 170 == 0:
-                print(' step: %g,accuracy: %g' % (step,validation_accuracy))
+                #print(' step: %g,accuracy: %g' % (step,validation_accuracy))
                 
                 #Add summaries
                 '''
@@ -455,9 +455,10 @@ def main(_):
         for i in range(int(len(test_data_labels_og)/15)):
             label_per_track.append(test_data_labels_og[i*15])
         for i in range(len(max_proba)):
-            if max_proba[i] == label_per_track[i]:
-                track_chosen = i
-                break
+            if max_proba[i] == label_per_track[i] and i>10:
+                if not all(x == label_per_track[i] for x in max_proba[i]):
+                    track_chosen = i
+                    break
         max_proba_accuracy = sess.run(tf.reduce_mean(tf.cast(tf.equal(max_proba,label_per_track),tf.float32)))
         #print('test set: max proba accuracy on test set: %0.3f' % (max_proba_accuracy)) 
         majority_vote = sess.run(tf.argmax(prob_array_maj_vote,1))
@@ -465,18 +466,18 @@ def main(_):
         #print('test set: Majority vote accuracy on test set: %0.3f' % (majority_vote_accuracy)) 
         print(test_accuracy,max_proba_accuracy,majority_vote_accuracy)
         #print(FLAGS.initialiser)
-        #print('-------')
-        '''
+        print('-------')
+        #'''
         print(prob_array_max_prob[track_chosen])
         print(prob_array_maj_vote[track_chosen])
         print(max_proba[track_chosen])
-        print(label_per_track[track_chosen])
+        #print(label_per_track[track_chosen])
         print(segment_predic[track_chosen])
         print(segment_tag[track_chosen])
-        '''
+        #'''
         #print(FLAGS.learning_type)
         #print(FLAGS.initialiser)
-        print(FLAGS.batch_norm)
+        #print(FLAGS.batch_norm)
 
     #print('done')
 
@@ -493,3 +494,14 @@ if __name__ == '__main__':
 #0.67 0.82 0.80
 
 #xavier:
+
+
+''' 
+RESULTS
+shallow:
+(0.6693262412192974, 0.78799999, 0.75999999)
+(0.62331560292142507, 0.77200001, 0.75199997)
+Deep:
+(0.65248226967263734, 0.81999999, 0.80800003)
+(0.66347517738951012, 0.83999997, 0.81199998)
+'''
