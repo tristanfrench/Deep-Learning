@@ -1,1 +1,0 @@
-scp C:/Users/Vood/Desktop/UNI/Deep-Learning/project/shallow_nn_bc4.py tw15220@bc4login.acrc.bris.ac.uk:project/
