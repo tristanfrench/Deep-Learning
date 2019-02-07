@@ -1,5 +1,5 @@
 ## Deep-Learning
-This repository is a combination of lab exercices and a project about Deep Learning. We use Tensorflow 1.2
+This repository contains short lab exercices and a project about Deep Learning. All of the code is written in Python with Tensorflow 1.2
 
 ## Labs:
 * Lab 1: Fully connected Neural net trained on IRIS dataset which contains contains 150 samples of three types of IRIS flowers
